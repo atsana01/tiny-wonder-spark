@@ -48,7 +48,7 @@ export const Footer = () => {
                 <li><Link to="/faq" className="text-xs text-muted-foreground hover:text-foreground transition-colors">FAQ</Link></li>
                 <li><Link to="/contact" className="text-xs text-muted-foreground hover:text-foreground transition-colors">Contact Us</Link></li>
                 <li><Link to="/faq#account-types" className="text-xs text-muted-foreground hover:text-foreground transition-colors">Account Types</Link></li>
-                <li><Link to="/faq#payments" className="text-xs text-muted-foreground hover:text-foreground transition-colors">Payment & Billing</Link></li>
+                <li><Link to="/payment-billing" className="text-xs text-muted-foreground hover:text-foreground transition-colors">Payment & Billing</Link></li>
               </ul>
             </div>
 

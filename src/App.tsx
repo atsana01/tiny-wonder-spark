@@ -22,6 +22,8 @@ import Privacy from "./pages/Privacy";
 import Cookies from "./pages/Cookies";
 import AcceptableUse from "./pages/AcceptableUse";
 import ResetPassword from "./pages/ResetPassword";
+import QuotesHistory from "./pages/QuotesHistory";
+import PaymentBilling from "./pages/PaymentBilling";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 
 const queryClient = new QueryClient();
@@ -74,6 +76,16 @@ const App = () => (
                         <Route path="/tickets" element={
                           <ProtectedRoute requiredUserType="client">
                             <Tickets />
+                          </ProtectedRoute>
+                        } />
+                        <Route path="/quotes-history" element={
+                          <ProtectedRoute requiredUserType="client">
+                            <QuotesHistory />
+                          </ProtectedRoute>
+                        } />
+                        <Route path="/payment-billing" element={
+                          <ProtectedRoute>
+                            <PaymentBilling />
                           </ProtectedRoute>
                         } />
                         <Route path="*" element={<NotFound />} />

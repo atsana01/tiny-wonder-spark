@@ -54,6 +54,9 @@ export const AuthButton: React.FC<AuthButtonProps> = ({ variant }) => {
           <DropdownMenuItem asChild>
             <Link to="/profile">Profile Settings</Link>
           </DropdownMenuItem>
+          <DropdownMenuItem asChild>
+            <Link to="/quotes-history">Quotes History</Link>
+          </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={signOut}>
             <LogOut className="w-4 h-4 mr-2" />
