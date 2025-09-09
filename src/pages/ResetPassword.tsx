@@ -1,257 +1,212 @@
 import React, { useState, useEffect } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
 import { supabase } from '@/integrations/supabase/client';
-import { toast } from '@/hooks/use-toast';
-import { Eye, EyeOff, Lock, ArrowLeft, CheckCircle2, XCircle, AlertCircle } from 'lucide-react';
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
-
-const resetPasswordSchema = z.object({
-  password: z.string().min(8, 'Password must be at least 8 characters'),
-  confirmPassword: z.string().min(8, 'Please confirm your password'),
-}).refine((data) => data.password === data.confirmPassword, {
-  message: "Passwords don't match",
-  path: ["confirmPassword"],
-});
-
-type ResetPasswordForm = z.infer<typeof resetPasswordSchema>;
+import { toast } from 'sonner';
+import { EyeIcon, EyeOffIcon, AlertCircle, CheckCircle2 } from 'lucide-react';
 
 const ResetPassword = () => {
-  const [searchParams] = useSearchParams();
-  const navigate = useNavigate();
-  const [loading, setLoading] = useState(false);
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [isValidToken, setIsValidToken] = useState<boolean | null>(null);
-
-  const form = useForm<ResetPasswordForm>({
-    resolver: zodResolver(resetPasswordSchema),
-    defaultValues: {
-      password: '',
-      confirmPassword: '',
-    },
-  });
-
-  const password = form.watch('password');
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
 
   useEffect(() => {
+    // Check if we have the necessary tokens in the URL
     const accessToken = searchParams.get('access_token');
     const refreshToken = searchParams.get('refresh_token');
-    const type = searchParams.get('type');
-
-    if (type === 'recovery' && accessToken && refreshToken) {
-      supabase.auth.setSession({
-        access_token: accessToken,
-        refresh_token: refreshToken,
-      }).then(({ data, error }) => {
-        if (error) {
-          setError('Invalid or expired reset link. Please request a new password reset.');
-          setIsValidToken(false);
-        } else {
-          setIsValidToken(true);
-        }
-      });
-    } else {
-      setError('Invalid reset link. Please request a new password reset.');
-      setIsValidToken(false);
+    
+    if (!accessToken || !refreshToken) {
+      setError('Invalid password reset link. Please request a new password reset email.');
+      return;
     }
+
+    // Set the session with the tokens from the URL (but don't auto-login)
+    supabase.auth.setSession({
+      access_token: accessToken,
+      refresh_token: refreshToken
+    });
   }, [searchParams]);
 
-  const validatePassword = (password: string): { [key: string]: boolean } => {
-    return {
-      length: password.length >= 8,
-      lowercase: /[a-z]/.test(password),
-      uppercase: /[A-Z]/.test(password),
-      number: /\d/.test(password),
-    };
+  const validatePassword = (password: string): string | null => {
+    if (password.length < 8) {
+      return 'Password must be at least 8 characters long';
+    }
+    if (!/(?=.*[a-z])/.test(password)) {
+      return 'Password must contain at least one lowercase letter';
+    }
+    if (!/(?=.*[A-Z])/.test(password)) {
+      return 'Password must contain at least one uppercase letter';
+    }
+    if (!/(?=.*\d)/.test(password)) {
+      return 'Password must contain at least one number';
+    }
+    return null;
   };
 
-  const passwordValidation = validatePassword(password);
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (password !== confirmPassword) {
+      setError('Passwords do not match');
+      return;
+    }
 
-  const handleSubmit = async (data: ResetPasswordForm) => {
-    setLoading(true);
-    setError(null);
+    const passwordError = validatePassword(password);
+    if (passwordError) {
+      setError(passwordError);
+      return;
+    }
+
+    setIsLoading(true);
+    setError('');
 
     try {
       const { error: updateError } = await supabase.auth.updateUser({
-        password: data.password,
+        password: password
       });
 
-      if (updateError) throw updateError;
+      if (updateError) {
+        setError(updateError.message);
+        setIsLoading(false);
+        return;
+      }
 
-      toast({
-        title: 'Password Updated',
-        description: 'Your password has been successfully updated. You are now logged in.',
-      });
-
+      toast.success('Password updated successfully! You are now logged in.');
+      
+      // Redirect to dashboard after successful password reset
       navigate('/dashboard');
-    } catch (error: any) {
-      setError(error.message || 'An error occurred while updating your password');
+      
+    } catch (error) {
+      console.error('Error updating password:', error);
+      setError('An unexpected error occurred. Please try again.');
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
   };
-
-  if (isValidToken === null) {
-    return (
-      <div className="min-h-screen bg-gradient-hero flex items-center justify-center p-4">
-        <Card className="w-full max-w-md">
-          <CardContent className="pt-12 pb-12 text-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
-            <p>Validating reset link...</p>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  if (isValidToken === false) {
-    return (
-      <div className="min-h-screen bg-gradient-hero flex items-center justify-center p-4">
-        <div className="w-full max-w-md">
-          <Button variant="ghost" onClick={() => navigate('/')} className="mb-4">
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Back to Home
-          </Button>
-          <Card>
-            <CardHeader className="text-center">
-              <XCircle className="w-16 h-16 text-destructive mx-auto mb-4" />
-              <CardTitle>Invalid Reset Link</CardTitle>
-              <CardDescription>This link is invalid or has expired.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button onClick={() => navigate('/auth')} className="w-full">
-                Request New Reset Link
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-gradient-hero flex items-center justify-center p-4">
       <div className="w-full max-w-md">
-        <Button variant="ghost" onClick={() => navigate('/')} className="mb-4">
-          <ArrowLeft className="w-4 h-4 mr-2" />
-          Back to Home
-        </Button>
-
-        <div className="flex justify-center mb-8">
-          <img src="/lovable-uploads/569809aa-baff-4dfd-a37e-09697c885f6d.png" alt="Logo" className="h-[120px]" />
+        {/* Logo */}
+        <div className="flex items-center justify-center space-x-2 mb-8">
+          <img src="/lovable-uploads/569809aa-baff-4dfd-a37e-09697c885f6d.png" alt="Logo" className="h-20 w-auto object-contain" />
         </div>
 
-        <Card>
-          <CardHeader className="text-center">
-            <Lock className="w-16 h-16 text-primary mx-auto mb-4" />
-            <CardTitle>Set New Password</CardTitle>
-            <CardDescription>Please enter your new password below</CardDescription>
+        <Card className="shadow-elegant bg-white/90 backdrop-blur-sm border border-white/20">
+          <CardHeader className="text-center space-y-2">
+            <CardTitle className="text-2xl font-bold bg-gradient-primary bg-clip-text text-transparent">
+              Reset Your Password
+            </CardTitle>
+            <CardDescription className="text-muted-foreground">
+              Enter your new password below
+            </CardDescription>
           </CardHeader>
-          <CardContent>
-            <Form {...form}>
-              <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-6">
-                <FormField
-                  control={form.control}
-                  name="password"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>New Password</FormLabel>
-                      <FormControl>
-                        <div className="relative">
-                          <Input
-                            type={showPassword ? 'text' : 'password'}
-                            placeholder="Enter new password"
-                            {...field}
-                          />
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="absolute right-0 top-0 h-full px-3"
-                            onClick={() => setShowPassword(!showPassword)}
-                          >
-                            {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                          </Button>
-                        </div>
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+          
+          <CardContent className="space-y-6">
+            {error && (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
 
-                <FormField
-                  control={form.control}
-                  name="confirmPassword"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Confirm New Password</FormLabel>
-                      <FormControl>
-                        <div className="relative">
-                          <Input
-                            type={showConfirmPassword ? 'text' : 'password'}
-                            placeholder="Confirm new password"
-                            {...field}
-                          />
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="absolute right-0 top-0 h-full px-3"
-                            onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                          >
-                            {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                          </Button>
-                        </div>
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="password">New Password</Label>
+                <div className="relative">
+                  <Input
+                    id="password"
+                    type={showPassword ? "text" : "password"}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Enter your new password"
+                    className="pr-10"
+                    required
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                    onClick={() => setShowPassword(!showPassword)}
+                  >
+                    {showPassword ? (
+                      <EyeOffIcon className="h-4 w-4" />
+                    ) : (
+                      <EyeIcon className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
+              </div>
 
-                <div className="space-y-2">
-                  <Label className="text-sm font-medium">Password Requirements:</Label>
-                  <div className="space-y-1">
-                    {Object.entries({
-                      length: 'At least 8 characters',
-                      lowercase: 'One lowercase letter',
-                      uppercase: 'One uppercase letter',
-                      number: 'One number',
-                    }).map(([key, text]) => (
-                      <div key={key} className="flex items-center space-x-2 text-xs">
-                        {passwordValidation[key] ? (
-                          <CheckCircle2 className="w-3 h-3 text-accent" />
-                        ) : (
-                          <XCircle className="w-3 h-3 text-muted-foreground" />
-                        )}
-                        <span className={passwordValidation[key] ? 'text-accent' : 'text-muted-foreground'}>
-                          {text}
-                        </span>
-                      </div>
-                    ))}
+              <div className="space-y-2">
+                <Label htmlFor="confirmPassword">Confirm New Password</Label>
+                <div className="relative">
+                  <Input
+                    id="confirmPassword"
+                    type={showConfirmPassword ? "text" : "password"}
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="Confirm your new password"
+                    className="pr-10"
+                    required
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                  >
+                    {showConfirmPassword ? (
+                      <EyeOffIcon className="h-4 w-4" />
+                    ) : (
+                      <EyeIcon className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
+              </div>
+
+              {/* Password Requirements */}
+              <div className="space-y-2 text-sm text-muted-foreground">
+                <p className="font-medium">Password requirements:</p>
+                <div className="grid grid-cols-1 gap-1">
+                  <div className={`flex items-center space-x-2 ${password.length >= 8 ? 'text-green-600' : ''}`}>
+                    {password.length >= 8 ? <CheckCircle2 className="h-3 w-3" /> : <div className="h-3 w-3 rounded-full border border-muted-foreground/30" />}
+                    <span>At least 8 characters</span>
+                  </div>
+                  <div className={`flex items-center space-x-2 ${/(?=.*[a-z])/.test(password) ? 'text-green-600' : ''}`}>
+                    {/(?=.*[a-z])/.test(password) ? <CheckCircle2 className="h-3 w-3" /> : <div className="h-3 w-3 rounded-full border border-muted-foreground/30" />}
+                    <span>One lowercase letter</span>
+                  </div>
+                  <div className={`flex items-center space-x-2 ${/(?=.*[A-Z])/.test(password) ? 'text-green-600' : ''}`}>
+                    {/(?=.*[A-Z])/.test(password) ? <CheckCircle2 className="h-3 w-3" /> : <div className="h-3 w-3 rounded-full border border-muted-foreground/30" />}
+                    <span>One uppercase letter</span>
+                  </div>
+                  <div className={`flex items-center space-x-2 ${/(?=.*\d)/.test(password) ? 'text-green-600' : ''}`}>
+                    {/(?=.*\d)/.test(password) ? <CheckCircle2 className="h-3 w-3" /> : <div className="h-3 w-3 rounded-full border border-muted-foreground/30" />}
+                    <span>One number</span>
                   </div>
                 </div>
+              </div>
 
-                {error && (
-                  <Alert variant="destructive">
-                    <AlertCircle className="h-4 w-4" />
-                    <AlertDescription>{error}</AlertDescription>
-                  </Alert>
-                )}
-
-                <Button type="submit" className="w-full" disabled={loading}>
-                  {loading ? 'Updating Password...' : 'Update Password'}
-                </Button>
-              </form>
-            </Form>
+              <Button
+                type="submit"
+                className="w-full bg-gradient-primary border-0 hover:opacity-90"
+                disabled={isLoading || !password || !confirmPassword}
+              >
+                {isLoading ? 'Updating Password...' : 'Update Password'}
+              </Button>
+            </form>
           </CardContent>
         </Card>
       </div>

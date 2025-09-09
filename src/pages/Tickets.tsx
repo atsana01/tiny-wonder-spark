@@ -81,12 +81,11 @@ const Tickets = () => {
     
     setLoading(true);
     try {
-      // Fetch quote requests first (excluding soft-deleted ones)
+      // Fetch quote requests first
       const { data: quoteRequests, error } = await supabase
         .from('quote_requests')
         .select('*')
         .eq('client_id', user.id)
-        .is('deleted_at', null)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -200,47 +199,18 @@ const Tickets = () => {
     if (!ticketToDelete) return;
     
     try {
-      // Soft delete with audit trail
       const { error } = await supabase
         .from('quote_requests')
-        .update({ 
-          deleted_at: new Date().toISOString(),
-          deletion_reason: 'User requested deletion'
-        })
+        .delete()
         .eq('id', ticketToDelete)
         .eq('client_id', user?.id); // Extra security check
 
       if (error) throw error;
 
-      // Remove from UI immediately 
       setTickets(prevTickets => prevTickets.filter(t => t.id !== ticketToDelete));
-      
-      // Also remove vendor from project vendor list
-      const ticketToRemove = tickets.find(t => t.id === ticketToDelete);
-      if (ticketToRemove) {
-        // Get the project ID for this quote request
-        const { data: quoteData } = await supabase
-          .from('quote_requests')
-          .select('project_id')
-          .eq('id', ticketToDelete)
-          .single();
-        
-        if (quoteData) {
-          // Update project_vendors to mark vendor as removed
-          await supabase
-            .from('project_vendors')
-            .update({ 
-              selection_status: 'removed',
-              removed_at: new Date().toISOString() 
-            })
-            .eq('project_id', quoteData.project_id)
-            .eq('vendor_id', ticketToRemove.vendor.id);
-        }
-      }
-
       toast({
         title: "Request Deleted",
-        description: "The quote request has been successfully deleted and moved to history.",
+        description: "The quote request has been successfully deleted.",
         variant: "destructive",
       });
     } catch (error: any) {
