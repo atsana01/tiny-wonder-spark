@@ -46,7 +46,7 @@ export function IdeaCard({ idea, onLike }: IdeaCardProps) {
             onClick={handleLike}
             className={cn(
               "transition-colors duration-200",
-              isLiked ? "text-red-500 hover:text-red-600" : "text-muted-foreground hover:text-foreground"
+              isLiked ? "text-destructive hover:text-destructive/80" : "text-muted-foreground hover:text-foreground"
             )}
           >
             <Heart className={cn("h-4 w-4", isLiked && "fill-current")} />

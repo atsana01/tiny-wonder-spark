@@ -461,7 +461,7 @@ const EnhancedSendQuoteModal: React.FC<SendQuoteModalProps> = ({
           {/* Inclusions */}
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-green-600">What's Included</h3>
+              <h3 className="text-lg font-semibold text-accent">What's Included</h3>
               <Button type="button" onClick={addInclusion} size="sm" variant="outline">
                 <Plus className="w-4 h-4 mr-2" />
                 Add Inclusion
@@ -492,7 +492,7 @@ const EnhancedSendQuoteModal: React.FC<SendQuoteModalProps> = ({
           {/* Exclusions */}
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-red-600">What's NOT Included</h3>
+              <h3 className="text-lg font-semibold text-destructive">What's NOT Included</h3>
               <Button type="button" onClick={addExclusion} size="sm" variant="outline">
                 <Plus className="w-4 h-4 mr-2" />
                 Add Exclusion

@@ -244,6 +244,9 @@ const EnhancedChatModal: React.FC<ChatModalProps> = ({
           <DialogTitle className="flex items-center gap-2">
             <MessageSquare className="w-5 h-5" />
             Chat - "{projectTitle}"
+            <div className="ml-auto text-sm font-normal text-muted-foreground">
+              Ticket ID: {quoteRequestId.slice(-8).toUpperCase()}
+            </div>
           </DialogTitle>
         </DialogHeader>
         

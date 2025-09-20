@@ -1,16 +1,18 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Building, Star, Clock, MessageSquare, Euro, User, MonitorSpeaker, Trash2 } from 'lucide-react';
-import { BsCardChecklist } from 'react-icons/bs';
+import { Input } from '@/components/ui/input';
+import { Building, Star, Clock, MessageSquare, Euro, User, Home, Trash2, Search, Filter, Upload, FileText } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
-import EnhancedSendQuoteModal from '@/components/EnhancedSendQuoteModal';
-import RFIModal from '@/components/RFIModal';
+import { formatClientName } from '@/utils/nameFormat';
 import EnhancedChatModal from '@/components/EnhancedChatModal';
+import ViewQuoteModal from '@/components/ViewQuoteModal';
+import UpdateQuoteModal from '@/components/UpdateQuoteModal';
+import { ConfirmDeleteDialog } from '@/components/ConfirmDeleteDialog';
 
 interface QuoteRequest {
   id: string;
@@ -21,42 +23,30 @@ interface QuoteRequest {
     location: string;
     created_at: string;
   };
-  client: {
+  vendor: {
     full_name: string;
     user_id: string;
+    business_name: string;
+    rating: number;
+    total_reviews: number;
+    verification_status: string;
   };
   status: string;
   created_at: string;
+  quoted_amount?: number;
+  vendor_notes?: string;
 }
 
-const VendorDashboard = () => {
+const ClientDashboard = () => {
   const { user } = useAuth();
   const [quoteRequests, setQuoteRequests] = useState<QuoteRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedQuotes, setSelectedQuotes] = useState<string[]>([]);
   const [isSelecting, setIsSelecting] = useState(false);
-  const [sendQuoteModal, setSendQuoteModal] = useState<{
-    isOpen: boolean;
-    quoteRequestId: string;
-    projectTitle: string;
-  }>({
-    isOpen: false,
-    quoteRequestId: '',
-    projectTitle: ''
-  });
-
-  const [rfiModal, setRfiModal] = useState<{
-    isOpen: boolean;
-    quoteRequestId: string;
-    projectTitle: string;
-    clientId: string;
-  }>({
-    isOpen: false,
-    quoteRequestId: '',
-    projectTitle: '',
-    clientId: ''
-  });
-
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  
+  // Modal states
   const [chatModal, setChatModal] = useState<{
     isOpen: boolean;
     quoteRequestId: string;
@@ -71,11 +61,33 @@ const VendorDashboard = () => {
     vendorId: ''
   });
 
-  useEffect(() => {
-    fetchQuoteRequests();
-  }, [user]);
+  const [viewQuoteModal, setViewQuoteModal] = useState<{
+    isOpen: boolean;
+    quoteRequestId: string;
+  }>({
+    isOpen: false,
+    quoteRequestId: ''
+  });
 
-  const fetchQuoteRequests = async () => {
+  const [updateQuoteModal, setUpdateQuoteModal] = useState<{
+    isOpen: boolean;
+    quoteRequestId: string;
+    projectTitle: string;
+  }>({
+    isOpen: false,
+    quoteRequestId: '',
+    projectTitle: ''
+  });
+
+  const [deleteDialog, setDeleteDialog] = useState<{
+    isOpen: boolean;
+    quoteIds: string[];
+  }>({
+    isOpen: false,
+    quoteIds: []
+  });
+
+  const fetchQuoteRequests = useCallback(async () => {
     if (!user) return;
     
     try {
@@ -91,33 +103,34 @@ const VendorDashboard = () => {
             created_at
           )
         `)
-        .eq('vendor_id', user.id)
+        .eq('client_id', user.id)
         .is('deleted_at', null)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
 
-      // Get client profiles for each quote request
-      const clientIds = data?.map(item => item.client_id) || [];
-      let clientProfiles: any[] = [];
+      // Get vendor profiles for each quote request
+      const vendorIds = data?.map(item => item.vendor_id) || [];
+      let vendorProfiles: any[] = [];
       
-      if (clientIds.length > 0) {
+      if (vendorIds.length > 0) {
         const { data: profiles, error: profilesError } = await supabase
-          .from('profiles')
-          .select('user_id, full_name')
-          .in('user_id', clientIds);
+          .from('vendor_profiles')
+          .select('user_id, business_name, rating, total_reviews, verification_status');
         
         if (!profilesError) {
-          clientProfiles = profiles || [];
+          vendorProfiles = profiles || [];
         }
       }
 
       const formattedData = data?.map(item => {
-        const clientProfile = clientProfiles.find(p => p.user_id === item.client_id);
+        const vendorProfile = vendorProfiles.find(p => p.user_id === item.vendor_id);
         return {
           id: item.id,
           status: item.status,
           created_at: item.created_at,
+          quoted_amount: item.quoted_amount,
+          vendor_notes: item.vendor_notes,
           project: {
             title: item.projects?.title || 'Untitled Project',
             description: item.projects?.description || '',
@@ -125,9 +138,13 @@ const VendorDashboard = () => {
             location: item.projects?.location || 'Location not specified',
             created_at: item.projects?.created_at || item.created_at
           },
-          client: {
-            full_name: clientProfile?.full_name || 'Client',
-            user_id: item.client_id
+          vendor: {
+            full_name: vendorProfile?.business_name || 'Vendor',
+            user_id: item.vendor_id,
+            business_name: vendorProfile?.business_name || 'Vendor',
+            rating: vendorProfile?.rating || 0,
+            total_reviews: vendorProfile?.total_reviews || 0,
+            verification_status: vendorProfile?.verification_status || 'pending'
           }
         };
       }) || [];
@@ -137,38 +154,26 @@ const VendorDashboard = () => {
       console.error('Error:', error);
       toast({
         title: "Error",
-        description: "Failed to load quote requests",
+        description: "Failed to load quotes",
         variant: "destructive",
       });
       setQuoteRequests([]);
     }
     setLoading(false);
-  };
+  }, [user]);
+
+  useEffect(() => {
+    fetchQuoteRequests();
+  }, [fetchQuoteRequests]);
 
   const getStatusBadgeVariant = (status: string) => {
     switch (status) {
-      case 'pending': return 'default';
-      case 'quoted': return 'secondary';
+      case 'pending': return 'secondary';
+      case 'quoted': return 'default';
       case 'accepted': return 'default';
       case 'declined': return 'destructive';
       default: return 'default';
     }
-  };
-
-  // Helper function to format client name for vendor display
-  const formatClientName = (fullName: string) => {
-    const names = fullName.trim().split(' ');
-    if (names.length === 1) return names[0];
-    const firstName = names[0];
-    const lastNameInitial = names[names.length - 1].charAt(0);
-    return `${firstName} ${lastNameInitial}.`;
-  };
-
-  // Check if vendor is ETEK registered
-  const isETEKRegistered = (vendorId: string) => {
-    // This would typically check vendor profile for ETEK registration
-    // For now, return false as placeholder
-    return false;
   };
 
   const formatDate = (dateString: string) => {
@@ -179,57 +184,57 @@ const VendorDashboard = () => {
     });
   };
 
-  const handleSendQuote = (quoteRequestId: string, projectTitle: string) => {
-    setSendQuoteModal({
+  const handleChat = (quoteRequestId: string, projectTitle: string, vendorId: string) => {
+    setChatModal({
+      isOpen: true,
+      quoteRequestId,
+      projectTitle,
+      clientId: user?.id || '',
+      vendorId
+    });
+  };
+
+  const handleViewQuote = (quoteRequestId: string) => {
+    setViewQuoteModal({
+      isOpen: true,
+      quoteRequestId
+    });
+  };
+
+  const handleUpdateQuote = (quoteRequestId: string, projectTitle: string) => {
+    setUpdateQuoteModal({
       isOpen: true,
       quoteRequestId,
       projectTitle
     });
   };
 
-  const handleQuoteSent = () => {
-    fetchQuoteRequests(); // Refresh the list
-    setSendQuoteModal({ isOpen: false, quoteRequestId: '', projectTitle: '' });
-  };
-
-  const handleRFI = (quoteRequestId: string, projectTitle: string, clientId: string) => {
-    setRfiModal({
-      isOpen: true,
-      quoteRequestId,
-      projectTitle,
-      clientId
-    });
-  };
-
-  const handleChat = (quoteRequestId: string, projectTitle: string, clientId: string, vendorId: string) => {
-    setChatModal({
-      isOpen: true,
-      quoteRequestId,
-      projectTitle,
-      clientId,
-      vendorId
-    });
-  };
-
   const handleDeleteSelected = async () => {
     if (selectedQuotes.length === 0) return;
     
+    setDeleteDialog({
+      isOpen: true,
+      quoteIds: selectedQuotes
+    });
+  };
+
+  const confirmDelete = async () => {
     try {
       const { error } = await supabase
         .from('quote_requests')
         .update({ deleted_at: new Date().toISOString() })
-        .in('id', selectedQuotes);
+        .in('id', deleteDialog.quoteIds);
 
       if (error) throw error;
 
       toast({
         title: "Success",
-        description: `${selectedQuotes.length} quote request(s) deleted successfully`,
+        description: `${deleteDialog.quoteIds.length} quote request(s) deleted successfully`,
       });
 
       setSelectedQuotes([]);
       setIsSelecting(false);
-      fetchQuoteRequests(); // Refresh the list
+      fetchQuoteRequests();
     } catch (error: any) {
       toast({
         title: "Error",
@@ -237,7 +242,15 @@ const VendorDashboard = () => {
         variant: "destructive",
       });
     }
+    setDeleteDialog({ isOpen: false, quoteIds: [] });
   };
+
+  const filteredQuotes = quoteRequests.filter(quote => {
+    const matchesSearch = quote.project.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         quote.vendor.business_name.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesStatus = statusFilter === 'all' || quote.status === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
 
   return (
     <div className="min-h-screen bg-background">
@@ -246,17 +259,17 @@ const VendorDashboard = () => {
         <div className="flex items-center justify-between mb-8">
           <div className="flex items-center space-x-2">
             <div className="w-12 h-12 bg-gradient-primary rounded-xl flex items-center justify-center">
-              <MonitorSpeaker className="w-6 h-6 text-white" />
+              <Home className="w-6 h-6 text-white" />
             </div>
             <div>
-              <h1 className="text-3xl font-bold">Vendor Dashboard</h1>
-              <p className="text-muted-foreground">Welcome back, {user?.email}</p>
+              <h1 className="text-3xl font-bold">Client Dashboard</h1>
+              <p className="text-muted-foreground">Welcome back, {formatClientName(user?.email || '')}</p>
             </div>
           </div>
-          <Button asChild variant="outline">
-            <Link to="/business-information">
-              <User className="w-4 h-4 mr-2" />
-              Business Information
+          <Button asChild className="bg-gradient-primary">
+            <Link to="/">
+              <Building className="w-4 h-4 mr-2" />
+              New Project
             </Link>
           </Button>
         </div>
@@ -265,11 +278,14 @@ const VendorDashboard = () => {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">Pending Quotes</CardTitle>
+              <CardTitle className="text-sm font-medium">Quote Pending</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-primary">
-                {quoteRequests.filter(q => q.status === 'pending').length}
+              <div className="flex items-center gap-2">
+                <div className="text-2xl font-bold text-primary">
+                  {quoteRequests.filter(q => q.status === 'pending').length}
+                </div>
+                <MessageSquare className="w-5 h-5 text-primary" />
               </div>
             </CardContent>
           </Card>
@@ -287,24 +303,49 @@ const VendorDashboard = () => {
 
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">Response Rate</CardTitle>
+              <CardTitle className="text-sm font-medium">Total Quotes</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-accent">94%</div>
+              <div className="text-2xl font-bold text-purple">
+                {quoteRequests.length}
+              </div>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">Rating</CardTitle>
+              <CardTitle className="text-sm font-medium">Completed</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="flex items-center gap-1">
-                <div className="text-2xl font-bold">4.8</div>
-                <Star className="w-5 h-5 fill-yellow-400 text-yellow-400" />
+              <div className="text-2xl font-bold text-accent">
+                {quoteRequests.filter(q => q.status === 'accepted').length}
               </div>
             </CardContent>
           </Card>
+        </div>
+
+        {/* Filters and Search */}
+        <div className="flex flex-col sm:flex-row gap-4 mb-6">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
+            <Input
+              placeholder="Search projects or vendors..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-10"
+            />
+          </div>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="px-3 py-2 border border-input rounded-md bg-background"
+          >
+            <option value="all">All Status</option>
+            <option value="pending">Pending</option>
+            <option value="quoted">Quoted</option>
+            <option value="accepted">Accepted</option>
+            <option value="declined">Declined</option>
+          </select>
         </div>
 
         {/* Quote Requests */}
@@ -313,7 +354,7 @@ const VendorDashboard = () => {
             <div className="flex items-center justify-between">
               <CardTitle className="flex items-center gap-2">
                 <MessageSquare className="w-5 h-5" />
-                Quote Requests
+                My Quotes
               </CardTitle>
               <div className="flex items-center gap-3">
                 {isSelecting && (
@@ -321,12 +362,12 @@ const VendorDashboard = () => {
                     variant="ghost"
                     size="sm"
                     onClick={() => {
-                      const allIds = quoteRequests.map(q => q.id);
+                      const allIds = filteredQuotes.map(q => q.id);
                       setSelectedQuotes(selectedQuotes.length === allIds.length ? [] : allIds);
                     }}
                     className="text-primary hover:text-primary/80"
                   >
-                    {selectedQuotes.length === quoteRequests.length ? "Deselect All" : "Select All"}
+                    {selectedQuotes.length === filteredQuotes.length ? "Deselect All" : "Select All"}
                   </Button>
                 )}
                 {isSelecting && selectedQuotes.length > 0 && (
@@ -354,19 +395,19 @@ const VendorDashboard = () => {
               </div>
             </div>
             <CardDescription>
-              Manage incoming project requests and send quotes
+              Manage your quotes and project communications
             </CardDescription>
           </CardHeader>
           <CardContent>
             {loading ? (
               <div className="text-center py-8">Loading...</div>
-            ) : quoteRequests.length === 0 ? (
+            ) : filteredQuotes.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
-                No quote requests yet. Keep your profile updated to receive more opportunities!
+                No quotes found. Start a new project to receive quotes!
               </div>
             ) : (
               <div className="space-y-4">
-                {quoteRequests.map((quote) => (
+                {filteredQuotes.map((quote) => (
                   <Card key={quote.id} className={`hover:shadow-lg transition-shadow ${isSelecting && selectedQuotes.includes(quote.id) ? 'ring-2 ring-destructive' : ''}`}>
                     <CardContent className="p-6">
                       {isSelecting && (
@@ -382,10 +423,10 @@ const VendorDashboard = () => {
                               }
                             }}
                             className="h-5 w-5 text-primary border-2 border-gray-300 rounded-md focus:ring-2 focus:ring-primary cursor-pointer"
-                            id={`vendor-select-${quote.id}`}
+                            id={`client-select-${quote.id}`}
                           />
                           <label 
-                            htmlFor={`vendor-select-${quote.id}`}
+                            htmlFor={`client-select-${quote.id}`}
                             className="ml-3 text-sm font-medium text-gray-700 cursor-pointer select-none min-h-[44px] flex items-center"
                           >
                             Select for deletion
@@ -395,7 +436,7 @@ const VendorDashboard = () => {
                       <div className="flex items-start justify-between mb-4">
                         <div className="flex-1">
                           <div className="flex items-center gap-2 mb-2">
-                            <h3 className="font-semibold text-lg">{formatClientName(quote.client.full_name)}</h3>
+                            <h3 className="font-semibold text-lg">{quote.vendor.business_name}</h3>
                             <Badge variant={getStatusBadgeVariant(quote.status)}>
                               {quote.status}
                             </Badge>
@@ -403,14 +444,16 @@ const VendorDashboard = () => {
                           <p className="text-muted-foreground text-sm mb-2">
                             {quote.project.title}
                           </p>
-                          <p className="text-muted-foreground text-xs">
+                          <p className="text-muted-foreground text-xs mb-3">
                             {quote.project.description}
                           </p>
                           <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                            <span className="flex items-center gap-1">
-                              <Euro className="w-4 h-4" />
-                              {quote.project.budget_range}
-                            </span>
+                            {quote.quoted_amount && (
+                              <span className="flex items-center gap-1 text-accent font-medium">
+                                <Euro className="w-4 h-4" />
+                                €{quote.quoted_amount.toLocaleString()}
+                              </span>
+                            )}
                             <span className="flex items-center gap-1">
                               <Clock className="w-4 h-4" />
                               {formatDate(quote.created_at)}
@@ -424,38 +467,28 @@ const VendorDashboard = () => {
                           <Button 
                             variant="modern" 
                             size="sm"
-                            onClick={() => handleChat(quote.id, quote.project.title, quote.client.user_id, user?.id || '')}
+                            onClick={() => handleChat(quote.id, quote.project.title, quote.vendor.user_id)}
                           >
                             <MessageSquare className="w-4 h-4 mr-1" />
                             Chat
                           </Button>
-                          {quote.status === 'pending' && (
-                            <Button 
-                              size="sm" 
-                              variant="modern"
-                              onClick={() => handleSendQuote(quote.id, quote.project.title)}
-                            >
-                              <Euro className="w-4 h-4 mr-1" />
-                              Send Quote
-                            </Button>
-                          )}
                           {quote.status === 'quoted' && (
                             <Button 
                               size="sm" 
                               variant="modern"
-                              onClick={() => handleSendQuote(quote.id, quote.project.title)}
+                              onClick={() => handleViewQuote(quote.id)}
                             >
-                              <Euro className="w-4 h-4 mr-1" />
-                              Update Quote
+                              <FileText className="w-4 h-4 mr-1" />
+                              View Quote
                             </Button>
                           )}
                           <Button 
                             variant="modern" 
                             size="sm"
-                            onClick={() => handleRFI(quote.id, quote.project.title, quote.client.user_id)}
+                            onClick={() => handleUpdateQuote(quote.id, quote.project.title)}
                           >
-                            <BsCardChecklist className="w-4 h-4 mr-1" />
-                            RFI
+                            <Upload className="w-4 h-4 mr-1" />
+                            Update Quote
                           </Button>
                         </div>
                       </div>
@@ -468,22 +501,6 @@ const VendorDashboard = () => {
         </Card>
 
         {/* Modals */}
-        <EnhancedSendQuoteModal
-          isOpen={sendQuoteModal.isOpen}
-          onClose={() => setSendQuoteModal({ isOpen: false, quoteRequestId: '', projectTitle: '' })}
-          quoteRequestId={sendQuoteModal.quoteRequestId}
-          projectTitle={sendQuoteModal.projectTitle}
-          onQuoteSent={handleQuoteSent}
-        />
-
-        <RFIModal
-          isOpen={rfiModal.isOpen}
-          onClose={() => setRfiModal({ isOpen: false, quoteRequestId: '', projectTitle: '', clientId: '' })}
-          quoteRequestId={rfiModal.quoteRequestId}
-          projectTitle={rfiModal.projectTitle}
-          clientId={rfiModal.clientId}
-        />
-
         <EnhancedChatModal
           isOpen={chatModal.isOpen}
           onClose={() => setChatModal({ isOpen: false, quoteRequestId: '', projectTitle: '', clientId: '', vendorId: '' })}
@@ -492,9 +509,32 @@ const VendorDashboard = () => {
           clientId={chatModal.clientId}
           vendorId={chatModal.vendorId}
         />
+
+        <ViewQuoteModal
+          isOpen={viewQuoteModal.isOpen}
+          onClose={() => setViewQuoteModal({ isOpen: false, quoteRequestId: '' })}
+          quoteRequestId={viewQuoteModal.quoteRequestId}
+          onQuoteAction={fetchQuoteRequests}
+        />
+
+        <UpdateQuoteModal
+          isOpen={updateQuoteModal.isOpen}
+          onClose={() => setUpdateQuoteModal({ isOpen: false, quoteRequestId: '', projectTitle: '' })}
+          quoteRequestId={updateQuoteModal.quoteRequestId}
+          projectTitle={updateQuoteModal.projectTitle}
+          onUpdateSubmitted={fetchQuoteRequests}
+        />
+
+        <ConfirmDeleteDialog
+          open={deleteDialog.isOpen}
+          onOpenChange={(open) => !open && setDeleteDialog({ isOpen: false, quoteIds: [] })}
+          onConfirm={confirmDelete}
+          title="Delete Quote Requests"
+          description={`Are you sure you want to delete ${deleteDialog.quoteIds.length} quote request(s)? This action cannot be undone.`}
+        />
       </div>
     </div>
   );
 };
 
-export default VendorDashboard;
+export default ClientDashboard;

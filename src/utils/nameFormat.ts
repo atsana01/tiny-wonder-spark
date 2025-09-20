@@ -14,6 +14,9 @@ export const formatPrivateName = (fullName: string): string => {
   return `${firstName} ${lastInitial}.`;
 };
 
+export const formatClientName = formatPrivateName;
+export const formatVendorName = formatPrivateName;
+
 /**
  * Safely extracts initials from a name
  */

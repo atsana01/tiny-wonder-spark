@@ -10,7 +10,7 @@ const VerifiedBadge: React.FC<VerifiedBadgeProps> = ({ className = "", size = 16
   return (
     <div title="ETEK Registered - Verified Professional Engineer" className="inline-flex">
       <CheckCircle 
-        className={`text-green-600 ${className}`} 
+        className={`text-accent ${className}`} 
         size={size}
       />
     </div>
